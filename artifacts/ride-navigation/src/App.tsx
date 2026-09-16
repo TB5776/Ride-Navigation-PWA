@@ -20,6 +20,16 @@ import {
 } from 'lucide-react';
 import { createCameraService } from '@/services/camera';
 import { detectDeviceCapabilities } from '@/services/deviceCapabilities';
+import {
+  clearStoredMapboxToken,
+  getMapboxConfiguration,
+  getStoredMapboxToken,
+  isPublicMapboxToken,
+  mapboxResponseMessage,
+  saveStoredMapboxToken,
+  testMapboxConnection,
+  type MapboxTokenSource,
+} from '@/services/mapboxConfig';
 import { createWakeLockController } from '@/services/wakeLock';
 import {
   deriveSpeedKmh,
@@ -74,7 +84,6 @@ declare global {
   }
 }
 
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
 const MAPBOX_SCRIPT = 'https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js';
 const MAPBOX_STYLE = 'mapbox://styles/mapbox/navigation-night-v1';
 
@@ -115,6 +124,19 @@ function App() {
   const [performanceMode, setPerformanceMode] =
     useStoredState<PerformanceMode>('ride-performance', 'balanced');
   const [debugMode, setDebugMode] = useStoredState('ride-debug', false);
+  const [mapboxToken, setMapboxToken] = useState(
+    () => getMapboxConfiguration().token,
+  );
+  const [mapboxTokenSource, setMapboxTokenSource] =
+    useState<MapboxTokenSource>(() => getMapboxConfiguration().source);
+  const [mapboxTokenDraft, setMapboxTokenDraft] = useState(
+    () => getStoredMapboxToken() ?? getMapboxConfiguration().token ?? '',
+  );
+  const [mapboxTokenStatus, setMapboxTokenStatus] = useState<string | null>(null);
+  const [mapboxTokenStatusKind, setMapboxTokenStatusKind] = useState<
+    'ok' | 'error' | null
+  >(null);
+  const [testingMapboxToken, setTestingMapboxToken] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [installPrompt, setInstallPrompt] =
@@ -135,7 +157,7 @@ function App() {
   const [offRoute, setOffRoute] = useState(false);
   const [remainingMeters, setRemainingMeters] = useState<number | null>(null);
   const [mapState, setMapState] = useState<MapState>(
-    MAPBOX_TOKEN ? 'loading' : 'missing-token',
+    mapboxToken ? 'loading' : 'missing-token',
   );
   const [capabilities] = useState<DeviceCapabilities>(() =>
     detectDeviceCapabilities(),
@@ -151,6 +173,10 @@ function App() {
   } | null>(null);
   const mapRouteDrawnRef = useRef(false);
   const wakeLockRef = useRef(createWakeLockController());
+  const mapboxConfiguration = mapboxToken
+    ? { token: mapboxToken, source: mapboxTokenSource }
+    : { token: null, source: 'none' as const };
+  const hasMapboxToken = Boolean(mapboxConfiguration.token);
 
   const actualTheme = useMemo(
     () =>
@@ -273,13 +299,19 @@ function App() {
   );
 
   useEffect(() => {
-    if (!MAPBOX_TOKEN || !mapNode.current) return;
+    if (!mapboxToken || !mapNode.current) {
+      mapRef.current?.remove();
+      mapRef.current = null;
+      setMapState('missing-token');
+      return;
+    }
+    setMapState('loading');
     let script = document.querySelector<HTMLScriptElement>(
       `script[src="${MAPBOX_SCRIPT}"]`,
     );
     const boot = () => {
       if (!mapNode.current || !window.mapboxgl || mapRef.current) return;
-      window.mapboxgl.accessToken = MAPBOX_TOKEN;
+      window.mapboxgl.accessToken = mapboxToken;
       try {
         const map = new window.mapboxgl.Map({
           container: mapNode.current,
@@ -326,7 +358,7 @@ function App() {
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [location.latitude, location.longitude]);
+  }, [mapboxToken]);
 
   useEffect(() => {
     if (
@@ -481,11 +513,11 @@ function App() {
       setRouteError(null);
       setNavigationStatus('idle');
       if (searchTimer.current) window.clearTimeout(searchTimer.current);
-      if (!MAPBOX_TOKEN || value.trim().length < 3) {
+      if (!hasMapboxToken || value.trim().length < 3) {
         setSearchResults([]);
         setSearchError(
-          !MAPBOX_TOKEN && value.trim().length >= 3
-            ? 'Add VITE_MAPBOX_TOKEN to enable geocoding.'
+          !hasMapboxToken && value.trim().length >= 3
+            ? 'Add your Mapbox access token in Settings to enable geocoding.'
             : null,
         );
         setSearching(false);
@@ -501,9 +533,16 @@ function App() {
               ? `&proximity=${location.longitude},${location.latitude}`
               : '';
           const response = await fetch(
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(value.trim())}.json?autocomplete=true&limit=5${proximity}&access_token=${MAPBOX_TOKEN}`,
+              `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(value.trim())}.json?autocomplete=true&limit=5${proximity}&access_token=${mapboxToken}`,
           );
-          if (!response.ok) throw new Error('Search unavailable. Check your connection.');
+          if (!response.ok) {
+            throw new Error(
+              mapboxResponseMessage(
+                response,
+                'Search unavailable. Check your connection.',
+              ),
+            );
+          }
           const data = (await response.json()) as { features?: MapboxFeature[] };
           setSearchResults(data.features ?? []);
         } catch (error) {
@@ -517,7 +556,7 @@ function App() {
         }
       }, 280);
     },
-    [location.latitude, location.longitude],
+    [hasMapboxToken, location.latitude, location.longitude, mapboxToken],
   );
 
   const chooseDestination = useCallback(
@@ -527,7 +566,7 @@ function App() {
       setSearchResults([]);
       setSearchError(null);
       setRouteError(null);
-      if (!MAPBOX_TOKEN) return;
+      if (!hasMapboxToken) return;
       if (location.latitude === null || location.longitude === null) {
         setRouteError(
           'Enable location before requesting a route from your current position.',
@@ -542,9 +581,16 @@ function App() {
         const start = `${location.longitude},${location.latitude}`;
         const end = `${destination.center[0]},${destination.center[1]}`;
         const response = await fetch(
-          `https://api.mapbox.com/directions/v5/mapbox/${profile}/${start};${end}?alternatives=false&geometries=geojson&overview=full&steps=true&access_token=${MAPBOX_TOKEN}`,
+          `https://api.mapbox.com/directions/v5/mapbox/${profile}/${start};${end}?alternatives=false&geometries=geojson&overview=full&steps=true&access_token=${mapboxToken}`,
         );
-        if (!response.ok) throw new Error('Routing unavailable. Check your connection.');
+          if (!response.ok) {
+            throw new Error(
+              mapboxResponseMessage(
+                response,
+                'Routing unavailable. Check your connection.',
+              ),
+            );
+          }
         const data = (await response.json()) as { routes?: MapboxRoute[] };
         const first = data.routes?.[0];
         if (!first) throw new Error('No route was returned for this destination.');
@@ -574,8 +620,58 @@ function App() {
         setRouteLoading(false);
       }
     },
-    [location.latitude, location.longitude, mode],
+    [hasMapboxToken, location.latitude, location.longitude, mapboxToken, mode],
   );
+
+  const applyMapboxConfiguration = useCallback(() => {
+    const configuration = getMapboxConfiguration();
+    setMapboxToken(configuration.token);
+    setMapboxTokenSource(configuration.source);
+    setMapState(configuration.token ? 'loading' : 'missing-token');
+    setRouteError(null);
+  }, []);
+
+  const saveMapboxToken = () => {
+    try {
+      saveStoredMapboxToken(mapboxTokenDraft);
+      applyMapboxConfiguration();
+      setMapboxTokenStatus(
+        getMapboxConfiguration().source === 'environment'
+          ? 'Saved locally. The environment token remains active.'
+          : 'Token saved on this device.',
+      );
+      setMapboxTokenStatusKind('ok');
+    } catch (error) {
+      setMapboxTokenStatus(
+        error instanceof Error ? error.message : 'Could not save the token.',
+      );
+      setMapboxTokenStatusKind('error');
+    }
+  };
+
+  const clearMapboxToken = () => {
+    clearStoredMapboxToken();
+    const configuration = getMapboxConfiguration();
+    setMapboxTokenDraft(configuration.token ?? '');
+    applyMapboxConfiguration();
+    setMapboxTokenStatus(
+      configuration.source === 'environment'
+        ? 'Local token cleared. The environment token remains active.'
+        : 'Token cleared from this device.',
+    );
+    setMapboxTokenStatusKind('ok');
+  };
+
+  const testMapboxToken = async () => {
+    const candidate = mapboxTokenDraft.trim() || mapboxToken;
+    setTestingMapboxToken(true);
+    setMapboxTokenStatus(null);
+    setMapboxTokenStatusKind(null);
+    const result = await testMapboxConnection(candidate);
+    setMapboxTokenStatus(result.message);
+    setMapboxTokenStatusKind(result.ok ? 'ok' : 'error');
+    setTestingMapboxToken(false);
+  };
 
   const startNavigation = () => {
     if (!route) return;
@@ -605,7 +701,7 @@ function App() {
 
   const mapMessage =
     mapState === 'missing-token'
-      ? 'Mapbox is not configured'
+      ? "Mapbox isn't configured"
       : mapState === 'error'
         ? 'Mapbox could not load'
         : null;
@@ -663,7 +759,7 @@ function App() {
 
       <main className="ride-layout">
         <section className="map-stage" aria-label="Navigation map">
-          {MAPBOX_TOKEN && (
+          {hasMapboxToken && (
             <div className="map-canvas" ref={mapNode} data-testid="mapbox-canvas" />
           )}
           <div className="map-fade" aria-hidden="true" />
@@ -676,7 +772,7 @@ function App() {
                 <h2>{mapMessage}</h2>
                 <p>
                   {mapState === 'missing-token'
-                    ? 'Set VITE_MAPBOX_TOKEN in the frontend environment to load maps, geocoding, and routes. No substitute map is shown.'
+                    ? 'Add your Mapbox access token in Settings to enable maps and navigation.'
                     : 'Check your token, network connection, and Mapbox availability. No substitute map is shown.'}
                 </p>
                 <button
@@ -690,7 +786,7 @@ function App() {
               </div>
             </div>
           )}
-          {MAPBOX_TOKEN && mapState === 'loading' && (
+          {hasMapboxToken && mapState === 'loading' && (
             <div className="map-empty">
               <div
                 className="map-empty-card skeleton"
@@ -768,7 +864,7 @@ function App() {
           <section className="panel-card">
             <div className="panel-heading">
               <h2>Find a destination</h2>
-              <span>{MAPBOX_TOKEN ? 'Mapbox search' : 'Needs token'}</span>
+              <span>{hasMapboxToken ? 'Mapbox search' : 'Needs token'}</span>
             </div>
             <div className="search-wrap">
               <Search className="search-icon" size={16} />
@@ -778,7 +874,7 @@ function App() {
                 value={search}
                 onChange={(event) => runSearch(event.target.value)}
                 placeholder="Search places or addresses"
-                disabled={!MAPBOX_TOKEN}
+                disabled={!hasMapboxToken}
                 aria-label="Search destination"
                 data-testid="input-destination-search"
               />
@@ -973,16 +1069,16 @@ function App() {
               </span>
             </div>
           )}
-          {!MAPBOX_TOKEN && (
+          {!hasMapboxToken && (
             <div className="notice" data-testid="status-token-notice">
               <PlugZap size={15} />
               <span>
-                Navigation is limited until a Mapbox public token is configured.
-                Location and browser diagnostics remain available.
+                Add your Mapbox access token in Settings to enable maps and
+                navigation.
               </span>
             </div>
           )}
-          {MAPBOX_TOKEN && location.latitude === null && (
+          {hasMapboxToken && location.latitude === null && (
             <div className="notice" data-testid="status-location-notice">
               <LocateFixed size={15} />
               <span>
@@ -1088,6 +1184,75 @@ function App() {
               </div>
             </div>
             <div className="settings-group">
+              <h3>Mapbox</h3>
+              <div className={`token-status ${hasMapboxToken ? 'configured' : 'missing'}`}>
+                <span className="token-status-dot" aria-hidden="true" />
+                <span>
+                  {hasMapboxToken
+                    ? mapboxTokenSource === 'environment'
+                      ? 'Configured · environment token active'
+                      : 'Configured · saved on this device'
+                    : 'Not configured'}
+                </span>
+              </div>
+              <label className="token-field-label" htmlFor="mapbox-token">
+                Mapbox public access token
+              </label>
+              <input
+                id="mapbox-token"
+                className="token-input"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={mapboxTokenDraft}
+                onChange={(event) => {
+                  setMapboxTokenDraft(event.target.value);
+                  setMapboxTokenStatus(null);
+                  setMapboxTokenStatusKind(null);
+                }}
+                placeholder="pk...."
+                aria-describedby="mapbox-token-help"
+                data-testid="input-mapbox-token"
+              />
+              <p id="mapbox-token-help" className="token-help">
+                Public tokens begin with <code>pk.</code>. The token stays in
+                this browser and is sent only to Mapbox.
+              </p>
+              <div className="token-actions">
+                <button
+                  className="control-button primary"
+                  onClick={saveMapboxToken}
+                  data-testid="button-save-mapbox-token"
+                >
+                  Save
+                </button>
+                <button
+                  className="control-button subtle"
+                  onClick={testMapboxToken}
+                  disabled={testingMapboxToken}
+                  data-testid="button-test-mapbox-token"
+                >
+                  {testingMapboxToken ? 'Testing…' : 'Test connection'}
+                </button>
+                <button
+                  className="control-button subtle"
+                  onClick={clearMapboxToken}
+                  data-testid="button-clear-mapbox-token"
+                >
+                  Clear token
+                </button>
+              </div>
+              {mapboxTokenStatus && (
+                <p
+                  className={`token-feedback ${mapboxTokenStatusKind ?? ''}`}
+                  role="status"
+                  data-testid="status-mapbox-token"
+                >
+                  {mapboxTokenStatus}
+                </p>
+              )}
+            </div>
+            <div className="settings-group">
               <h3>Capabilities</h3>
               <div className="debug-status">
                 <Smartphone size={16} />
@@ -1100,14 +1265,16 @@ function App() {
                   </span>
                 </div>
               </div>
-              <div className={`debug-status ${MAPBOX_TOKEN ? 'ok' : 'warn'}`}>
+              <div className={`debug-status ${hasMapboxToken ? 'ok' : 'warn'}`}>
                 <Map size={16} />
                 <div>
                   <strong>Mapbox services</strong>
                   <span>
-                    {MAPBOX_TOKEN
-                      ? 'Token detected in frontend environment.'
-                      : 'VITE_MAPBOX_TOKEN is not configured.'}
+                    {hasMapboxToken
+                      ? mapboxTokenSource === 'environment'
+                        ? 'Environment token is active.'
+                        : 'Local token is active.'
+                      : 'Add a token in Settings to enable maps and navigation.'}
                   </span>
                 </div>
               </div>
@@ -1176,13 +1343,13 @@ function App() {
                 <X size={17} />
               </button>
             </div>
-            <div className={`debug-status ${MAPBOX_TOKEN && mapState === 'ready' ? 'ok' : 'warn'}`}>
+            <div className={`debug-status ${hasMapboxToken && mapState === 'ready' ? 'ok' : 'warn'}`}>
               <Map size={16} />
               <div>
                 <strong>Mapbox map and services</strong>
                 <span>
-                  {!MAPBOX_TOKEN
-                    ? 'Missing VITE_MAPBOX_TOKEN.'
+                  {!hasMapboxToken
+                    ? "Mapbox isn't configured."
                     : mapState === 'ready'
                       ? 'Map style loaded.'
                       : mapState === 'error'

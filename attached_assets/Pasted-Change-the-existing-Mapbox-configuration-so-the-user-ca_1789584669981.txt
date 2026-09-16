@@ -1,0 +1,65 @@
+Change the existing Mapbox configuration so the user can enter their Mapbox public access token directly inside the application.
+
+Do NOT remove the existing `VITE_MAPBOX_TOKEN` support. Support both methods:
+
+1. `VITE_MAPBOX_TOKEN` from the frontend environment, when available.
+2. A user-entered Mapbox token stored locally on the device.
+
+The app should prefer the environment token when one exists, otherwise use the locally stored token.
+
+Add a Mapbox section to the existing Settings UI.
+
+It should contain:
+
+* A password-style/text input for the Mapbox public access token.
+* A Save button.
+* A Test Connection button.
+* A Clear Token button.
+* A small status indicator showing whether a token is configured.
+
+The user should be able to paste a token beginning with `pk.`.
+
+Store the user-entered token locally on that device using appropriate browser storage.
+
+Do NOT send the token to a backend.
+Do NOT log the token.
+Do NOT display the full token in Debug Mode.
+Do NOT put the token into analytics or telemetry.
+
+When the token is saved or changed:
+
+1. Update the Mapbox configuration.
+2. Reinitialize the map cleanly if necessary.
+3. Make geocoding/search use the new token.
+4. Make routing use the new token.
+
+The app must continue to use real Mapbox services.
+
+Do NOT create a fake map or fake search/routing results.
+
+When no token is configured, show:
+
+"Mapbox isn't configured"
+
+and:
+
+"Add your Mapbox access token in Settings to enable maps and navigation."
+
+When a token is configured but invalid, show an appropriate authentication/configuration error rather than pretending the map works.
+
+The existing environment-variable method must continue working:
+
+`VITE_MAPBOX_TOKEN`
+
+Create a small reusable Mapbox token/configuration service so the map, search, and routing code all obtain the token from the same place.
+
+After implementing this:
+
+* run typecheck
+* run tests
+* run the production build
+* verify that the Settings token field works
+* verify that saving a valid public Mapbox token causes the real map to load
+* verify that search and routing use the same token
+
+Never expose the token in logs, screenshots, debug panels, or error messages.

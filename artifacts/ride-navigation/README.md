@@ -14,14 +14,20 @@ Ride Navigation is a portrait-first Progressive Web App for cyclists and scooter
 ## Development setup
 
 1. Copy `.env.example` to `.env.local`.
-2. Add a Mapbox public access token to `VITE_MAPBOX_TOKEN` if you want map, search, and routing features.
+2. Add a Mapbox public access token to `VITE_MAPBOX_TOKEN` if you want to configure it through the frontend environment.
 3. Start the app with:
 
 ```bash
 pnpm --filter @workspace/ride-navigation run dev
 ```
 
-The app still starts without a token. It shows an explicit configuration state instead of drawing a fake map or inventing search results.
+The app also supports entering a Mapbox public token in Settings. A locally saved token is stored only in that browser and is used when `VITE_MAPBOX_TOKEN` is absent. The environment token always takes precedence.
+
+The app still starts without a token. It shows:
+
+> Mapbox isn't configured
+
+and prompts the user to add a token in Settings instead of drawing a fake map or inventing search results.
 
 ## Commands
 
@@ -45,7 +51,7 @@ pnpm --filter @workspace/ride-navigation run build
 
 ## Current limitations
 
-- Real Mapbox features require a valid `VITE_MAPBOX_TOKEN` and network access.
+- Real Mapbox features require a valid public token and network access. The token can come from `VITE_MAPBOX_TOKEN` or the device-local Settings field.
 - GPS requires a secure context and a device/browser that exposes location services.
 - Route progress is based on the latest browser location; it does not claim turn-by-turn spoken guidance.
 - Camera, computer vision, object detection, tracking, path/lane perception, and safety warnings are intentionally not implemented in this milestone.

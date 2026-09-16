@@ -343,6 +343,37 @@ button:disabled { cursor: not-allowed; }
 .setting-copy strong { display: block; font-size: .76rem; }
 .setting-copy span { display: block; margin-top: .18rem; color: hsl(var(--muted-foreground)); font-size: .63rem; line-height: 1.4; }
 .setting-select { border: 1px solid hsl(var(--input)); border-radius: .55rem; padding: .48rem .65rem; color: hsl(var(--foreground)); background: hsl(var(--card)); font-size: .7rem; }
+.token-status {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  margin-bottom: .8rem;
+  color: hsl(var(--muted-foreground));
+  font-size: .65rem;
+}
+.token-status-dot { width: .45rem; height: .45rem; border-radius: 999px; background: hsl(var(--accent)); }
+.token-status.configured .token-status-dot { background: hsl(var(--primary)); }
+.token-field-label { display: block; margin-bottom: .38rem; color: hsl(var(--foreground)); font-size: .68rem; font-weight: 700; }
+.token-input {
+  width: 100%;
+  height: 2.55rem;
+  border: 1px solid hsl(var(--input));
+  border-radius: .58rem;
+  padding: 0 .72rem;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background) / .56);
+  font-family: var(--app-font-mono);
+  font-size: .68rem;
+  outline: none;
+}
+.token-input:focus { border-color: hsl(var(--primary) / .7); }
+.token-help { margin: .48rem 0 0; color: hsl(var(--muted-foreground)); font-size: .62rem; line-height: 1.45; }
+.token-help code { color: hsl(var(--foreground)); font-family: var(--app-font-mono); }
+.token-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; margin-top: .7rem; }
+.token-actions .control-button { min-height: 2.2rem; padding: .45rem .4rem; font-size: .62rem; }
+.token-feedback { margin: .6rem 0 0; color: hsl(var(--muted-foreground)); font-size: .63rem; line-height: 1.45; }
+.token-feedback.ok { color: hsl(var(--primary)); }
+.token-feedback.error { color: hsl(var(--accent)); }
 .debug-status { display: flex; align-items: center; gap: .55rem; padding: .68rem 0; border-bottom: 1px solid hsl(var(--border) / .75); }
 .debug-status:last-child { border-bottom: 0; }
 .debug-status svg { color: hsl(var(--muted-foreground)); }
