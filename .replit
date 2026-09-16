@@ -21,3 +21,8 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+VITE_MAPBOX_TOKEN = "pk.eyJ1IjoidGI1Nzc1IiwiYSI6ImNtdDF4aTI4cjBoNjUyeXIyNDFmbXNmamgifQ.Q54gIxTmPTZPJcxQP5Bt-A"
