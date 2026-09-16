@@ -1,6 +1,6 @@
-# [Project name]
+# Ride Navigation
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A portrait-first PWA for bike and scooter riders that uses real GPS and Mapbox navigation services when configured.
 
 ## Run & Operate
 
@@ -10,6 +10,7 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --filter @workspace/ride-navigation run dev` — run the Ride Navigation PWA
 
 ## Stack
 
@@ -30,15 +31,15 @@ _Populate as you build — non-obvious choices a reader couldn't infer from the 
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Ride Navigation is intentionally focused on a reliable first milestone: actual location, speed, Mapbox search/routing, route progress, settings, device capability reporting, and installable PWA behavior. Computer vision and safety perception are reserved for a later phase.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Do not invent GPS data, map content, route geometry, telemetry, or AI detections when an external service or browser capability is unavailable.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Mapbox is a client-side external dependency configured through `artifacts/ride-navigation/.env.local` using `VITE_MAPBOX_TOKEN`; missing configuration must remain an explicit UI state.
 
 ## Pointers
 

@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Ride Navigation"
+description = "A portrait-first progressive web app for bike and scooter riders, built around real GPS, Mapbox search and routing, route-aware navigation, and resilient device capability handling."
+version = "1.0.0"
+id = "artifacts/ride-navigation"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23583
+
+[services.development]
+run = "pnpm --filter @workspace/ride-navigation run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ride-navigation", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/ride-navigation/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23583"
+BASE_PATH = "/"

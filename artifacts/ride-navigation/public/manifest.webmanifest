@@ -1,0 +1,18 @@
+{
+  "name": "ride / nav",
+  "short_name": "ride / nav",
+  "description": "A focused navigation instrument for bike and scooter riders.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#081016",
+  "theme_color": "#081016",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
