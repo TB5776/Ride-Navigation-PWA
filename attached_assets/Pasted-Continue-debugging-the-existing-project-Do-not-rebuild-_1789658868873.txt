@@ -1,0 +1,79 @@
+Continue debugging the existing project. Do not rebuild the application.
+
+The dev server itself starts successfully:
+
+`VITE v7.3.6 ready`
+
+but the Replit runtime logs repeatedly show:
+
+`[RUNTIME_ERROR] {"type":"runtime-error","name":"Error","message":"(unknown runtime error)","stack":""}`
+
+The Mapbox UI currently reports that the map style is still loading.
+
+Do not guess at the cause and do not replace the real Mapbox integration.
+
+I need you to diagnose the actual browser-side exception.
+
+### Do this:
+
+1. Inspect the complete frontend code involved in:
+
+   * Mapbox/MapLibre initialization
+   * map style loading
+   * token retrieval
+   * Settings/token persistence
+   * application initialization
+   * capability diagnostics
+
+2. Run the app and inspect the browser console/runtime output, not only the Vite terminal output.
+
+3. Capture the first meaningful browser-side exception and its stack trace.
+
+4. If the Replit preview tooling suppresses the real exception, temporarily add safe development-only error instrumentation such as:
+
+   * `window.onerror`
+   * `window.onunhandledrejection`
+   * MapLibre/Mapbox error events
+
+   The instrumentation must report the actual error type/message/stack where available.
+
+5. Never log or expose the Mapbox token itself.
+
+6. Determine whether the failure is actually:
+
+   * Mapbox token/authentication
+   * style URL/configuration
+   * MapLibre/Mapbox initialization
+   * a missing dependency
+   * a React lifecycle problem
+   * an exception elsewhere in the app
+   * browser/runtime incompatibility
+   * network/CORS
+   * something unrelated to Mapbox
+
+7. Fix the actual root cause.
+
+8. Keep the real Mapbox implementation. Do not substitute a fake map.
+
+9. After fixing it, verify:
+
+   * application loads without repeated runtime errors
+   * real Mapbox map renders
+   * location still works
+   * token configuration still works
+   * missing-token state still works
+   * search/routing code remains intact
+
+10. Run:
+
+* typecheck
+* tests
+* production build
+
+Do not claim success unless the app was actually run and the relevant checks were executed.
+
+At the end, report:
+
+* the exact root cause
+* the files changed
+* the verification results

@@ -1,0 +1,116 @@
+Stop any long-running investigation and continue from the existing project.
+
+Do not rebuild the application.
+Do not redesign the UI.
+Do not add new features.
+
+The app currently shows:
+
+**Mapbox map and services — Map style is still loading.**
+
+The dev server starts successfully, and the system diagnostics show:
+
+* Geolocation: working
+* WebGPU: yes
+* WebGL: yes
+* Camera: yes
+* Wake Lock: yes
+* Advanced vision readiness: candidate
+
+The Vite server logs show repeated generic browser runtime errors:
+
+`[RUNTIME_ERROR] Error: (unknown runtime error)`
+
+The browser being used by me to view the Replit preview is Firefox.
+
+### Important browser constraint
+
+You do **not** need to test Firefox yourself.
+
+Do not spend time trying to launch or control Firefox.
+
+Instead, diagnose the application from the code and the browser/runtime information available to you.
+
+### Debug the Mapbox failure
+
+Inspect the existing Mapbox/MapLibre implementation and determine why the map style remains stuck loading.
+
+Check specifically:
+
+1. How the Mapbox token is retrieved.
+2. Whether the token passed to the map is actually present.
+3. The exact map/style URL being used.
+4. Whether the selected map renderer and style configuration are compatible.
+5. Whether the MapLibre/Mapbox dependency is installed and imported correctly.
+6. Whether map initialization is happening more than once because of React lifecycle behaviour.
+7. Whether the map container has a valid size when initialization occurs.
+8. Whether an exception is thrown during map creation.
+9. Whether a Mapbox/MapLibre `error` or `styledata`/`load` event is being ignored.
+10. Whether the current generic runtime error is actually coming from Mapbox or from unrelated application code.
+
+Add temporary development-only diagnostics if necessary.
+
+For example, safely capture:
+
+* `window.onerror`
+* `window.onunhandledrejection`
+* MapLibre/Mapbox map `error` events
+
+Report the actual error message and stack when available.
+
+**Never log, display, or expose the Mapbox token itself.**
+
+### Do not hide the problem
+
+Do not:
+
+* replace the map with a fake map
+* replace Mapbox with a screenshot
+* insert fake map data
+* suppress the error without fixing it
+* simply change the "Mapbox could not load" message
+* assume Firefox is the cause without evidence
+
+### Environment
+
+The user has already added a valid Mapbox public access token through the application's token configuration.
+
+The application must continue to support:
+
+* `VITE_MAPBOX_TOKEN`
+* locally stored user-entered Mapbox token
+
+Do not remove either mechanism.
+
+### Desired result
+
+Fix the actual Mapbox initialization problem so that the real map loads.
+
+After the fix, verify as much as the Replit environment allows:
+
+* application starts
+* no repeated runtime exception caused by map initialization
+* Mapbox initializes successfully, or provide the exact external/configuration reason it cannot
+* location continues working
+* token configuration continues working
+
+Then run:
+
+```text
+npm run typecheck
+npm test
+npm run build
+```
+
+Use the project's actual script names if they differ.
+
+Do not claim the map works unless you actually verified it.
+
+At the end, report:
+
+1. The actual root cause found.
+2. Files changed.
+3. Whether typecheck passed.
+4. Whether tests passed.
+5. Whether the production build passed.
+6. Whether the Replit environment itself prevented complete Mapbox verification.
