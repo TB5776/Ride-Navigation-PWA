@@ -65,7 +65,7 @@ type MapboxRoute = {
   }>;
 };
 type MapboxInstance = {
-  on: (event: string, callback: () => void) => void;
+  on: (event: string, callback: (event?: unknown) => void) => void;
   remove: () => void;
   resize: () => void;
   setCenter: (center: [number, number]) => void;
@@ -73,12 +73,15 @@ type MapboxInstance = {
   addSource: (id: string, source: object) => void;
   addLayer: (layer: object) => void;
   getSource: (id: string) => { setData: (data: object) => void } | undefined;
+  getCanvas: () => HTMLCanvasElement;
+  getContainer: () => HTMLElement;
 };
 
 declare global {
   interface Window {
     mapboxgl?: {
       accessToken: string;
+      version?: string;
       Map: new (options: object) => MapboxInstance;
     };
   }
@@ -86,6 +89,67 @@ declare global {
 
 const MAPBOX_SCRIPT = 'https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js';
 const MAPBOX_STYLE = 'mapbox://styles/mapbox/navigation-night-v1';
+const MAP_DIAGNOSTICS_ENABLED = import.meta.env.DEV;
+
+function sanitizeDiagnosticValue(
+  value: unknown,
+  token: string | null,
+  depth = 0,
+): unknown {
+  if (depth > 2) return '[details omitted]';
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeDiagnosticValue(item, token, depth + 1));
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        sanitizeDiagnosticValue(item, token, depth + 1),
+      ]),
+    );
+  }
+  if (typeof value !== 'string') return value;
+  return value
+    .replaceAll(token ?? '', token ? '[redacted-token]' : '')
+    .replace(/([?&](?:access_token|token|mapbox_token)=)[^&\s]+/gi, '$1[redacted]');
+}
+
+function diagnosticErrorDetails(error: unknown, token: string | null) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: sanitizeDiagnosticValue(error.message, token),
+      stack: sanitizeDiagnosticValue(error.stack ?? null, token),
+    };
+  }
+  if (typeof error === 'object' && error !== null) {
+    const record = error as Record<string, unknown>;
+    return {
+      name: sanitizeDiagnosticValue(record.name ?? 'UnknownError', token),
+      message: sanitizeDiagnosticValue(record.message ?? String(error), token),
+      stack: sanitizeDiagnosticValue(record.stack ?? null, token),
+      details: sanitizeDiagnosticValue(record, token),
+    };
+  }
+  return {
+    name: 'UnknownError',
+    message: sanitizeDiagnosticValue(String(error), token),
+    stack: null,
+  };
+}
+
+function safeDiagnosticUrl(value: unknown, token: string | null) {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value, window.location.href);
+    url.searchParams.delete('access_token');
+    url.searchParams.delete('token');
+    url.searchParams.delete('mapbox_token');
+    return sanitizeDiagnosticValue(url.toString(), token);
+  } catch {
+    return sanitizeDiagnosticValue(value, token);
+  }
+}
 
 const emptyLocation: LocationState = {
   latitude: null,
@@ -299,7 +363,70 @@ function App() {
   );
 
   useEffect(() => {
+    if (!MAP_DIAGNOSTICS_ENABLED) return;
+    const previousOnError = window.onerror;
+    const previousOnUnhandledRejection = window.onunhandledrejection;
+    const onResourceError = (event: Event) => {
+      if (event instanceof ErrorEvent) return;
+      const target = event.target as
+        | HTMLScriptElement
+        | HTMLLinkElement
+        | HTMLImageElement
+        | null;
+      const resource =
+        target instanceof HTMLLinkElement ? target.href : target?.src;
+      if (!resource) return;
+      console.error('[ride/nav] browser resource error', {
+        name: 'ResourceError',
+        message: 'A browser resource failed to load.',
+        stack: null,
+        resource: safeDiagnosticUrl(resource, mapboxToken),
+        source: target?.tagName ?? null,
+      });
+    };
+    window.onerror = (message, source, line, column, error) => {
+      console.error('[ride/nav] window.onerror', {
+        name: error?.name ?? 'WindowError',
+        message: sanitizeDiagnosticValue(message, mapboxToken),
+        stack: sanitizeDiagnosticValue(error?.stack ?? null, mapboxToken),
+        source: safeDiagnosticUrl(source, mapboxToken),
+        line,
+        column,
+        details: diagnosticErrorDetails(error, mapboxToken),
+      });
+      if (typeof previousOnError === 'function') {
+        return previousOnError(message, source, line, column, error);
+      }
+      return false;
+    };
+    window.onunhandledrejection = (event) => {
+      console.error('[ride/nav] window.onunhandledrejection', {
+        ...diagnosticErrorDetails(event.reason, mapboxToken),
+        resource: safeDiagnosticUrl(
+          (event.reason as { url?: unknown } | null)?.url,
+          mapboxToken,
+        ),
+      });
+      previousOnUnhandledRejection?.call(window, event);
+    };
+    window.addEventListener('error', onResourceError, true);
+    return () => {
+      window.onerror = previousOnError;
+      window.onunhandledrejection = previousOnUnhandledRejection;
+      window.removeEventListener('error', onResourceError, true);
+    };
+  }, [mapboxToken]);
+
+  useEffect(() => {
     if (!mapboxToken || !mapNode.current) {
+      if (MAP_DIAGNOSTICS_ENABLED) {
+        console.info('[ride/nav] map initialization skipped', {
+          renderer: 'Mapbox GL JS',
+          tokenPresent: Boolean(mapboxToken),
+          mapContainerPresent: Boolean(mapNode.current),
+          reason: !mapboxToken ? 'no active token' : 'map container unavailable',
+        });
+      }
       mapRef.current?.remove();
       mapRef.current = null;
       setMapState('missing-token');
@@ -312,25 +439,97 @@ function App() {
     const boot = () => {
       if (!mapNode.current || !window.mapboxgl || mapRef.current) return;
       window.mapboxgl.accessToken = mapboxToken;
+      const container = mapNode.current;
+      const containerRect = container.getBoundingClientRect();
+      if (MAP_DIAGNOSTICS_ENABLED) {
+        console.info('[ride/nav] map initialization start', {
+          renderer: 'Mapbox GL JS',
+          version: window.mapboxgl.version ?? 'unknown',
+          webglVersion: null,
+          webgl2Available: null,
+          containerWidth: containerRect.width,
+          containerHeight: containerRect.height,
+          styleUrl: MAPBOX_STYLE,
+          tokenPresent: Boolean(mapboxToken),
+        });
+        console.info('[ride/nav] style load start', { styleUrl: MAPBOX_STYLE });
+      }
       try {
         const map = new window.mapboxgl.Map({
-          container: mapNode.current,
+          container,
           style: MAPBOX_STYLE,
           center: [0, 0],
           zoom: 1.4,
           attributionControl: true,
         });
+        mapRef.current = map;
+        const canvas = map.getCanvas();
+        const webgl2Context = canvas.getContext('webgl2');
+        const webglContext = webgl2Context ?? canvas.getContext('webgl');
+        if (MAP_DIAGNOSTICS_ENABLED) {
+          console.info('[ride/nav] map renderer details', {
+            renderer: 'Mapbox GL JS',
+            version: window.mapboxgl.version ?? 'unknown',
+            webglVersion:
+              webglContext?.getParameter(webglContext.VERSION) ?? 'unavailable',
+            webgl2Available: Boolean(webgl2Context),
+            canvasWidth: canvas.width,
+            canvasHeight: canvas.height,
+            containerWidth: map.getContainer().getBoundingClientRect().width,
+            containerHeight: map.getContainer().getBoundingClientRect().height,
+            styleUrl: MAPBOX_STYLE,
+            tokenPresent: Boolean(mapboxToken),
+          });
+        }
+        map.on('style.load', () => {
+          if (MAP_DIAGNOSTICS_ENABLED) {
+            console.info('[ride/nav] style load success', { styleUrl: MAPBOX_STYLE });
+          }
+        });
         map.on('load', () => {
-          mapRef.current = map;
           setMapState('ready');
+          map.resize();
+          if (MAP_DIAGNOSTICS_ENABLED) {
+            console.info('[ride/nav] map load success', {
+              canvasWidth: map.getCanvas().width,
+              canvasHeight: map.getCanvas().height,
+              containerWidth: map.getContainer().getBoundingClientRect().width,
+              containerHeight: map.getContainer().getBoundingClientRect().height,
+            });
+          }
           if (location.latitude !== null && location.longitude !== null) {
             map.setCenter([location.longitude, location.latitude]);
             map.setZoom(14);
           }
         });
         map.on('dragstart', () => setFollowMode(false));
-        map.on('error', () => setMapState('error'));
-      } catch {
+        map.on('error', (event) => {
+          const details = (event ?? {}) as {
+            error?: unknown;
+            sourceId?: unknown;
+            source?: unknown;
+            tile?: unknown;
+            url?: unknown;
+          };
+          if (MAP_DIAGNOSTICS_ENABLED) {
+            console.error('[ride/nav] map error', {
+              ...diagnosticErrorDetails(details.error ?? event, mapboxToken),
+              resource: safeDiagnosticUrl(details.url, mapboxToken),
+              sourceId: sanitizeDiagnosticValue(details.sourceId, mapboxToken),
+              source: sanitizeDiagnosticValue(details.source, mapboxToken),
+              tile: sanitizeDiagnosticValue(details.tile, mapboxToken),
+            });
+          }
+          setMapState('error');
+        });
+      } catch (error) {
+        if (MAP_DIAGNOSTICS_ENABLED) {
+          console.error('[ride/nav] map creation error', {
+            ...diagnosticErrorDetails(error, mapboxToken),
+            styleUrl: MAPBOX_STYLE,
+            tokenPresent: Boolean(mapboxToken),
+          });
+        }
         setMapState('error');
       }
     };
